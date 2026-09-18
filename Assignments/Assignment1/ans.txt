@@ -1,0 +1,22 @@
+Problem (unicode1)
+(a): '\x00'
+(b): __repr__(): 对象的特殊方法，如何用字符串表示一个对象（与 __str__() 相比，面向开发者，常用于调试），print() 负责显示字符串
+(c): chr(0) 生成不可见字符 NUL，直接在终端输入 chr(0) 会调用其 repr() 方法使其可见，而调用 print() 方法不会出现任何输出（因为是不可见字符）
+
+Problem (unicode2)
+(a): UTF-8 完全兼容 Unicode，根据不同的 Unicode code point 灵活选择 1/2/3/4 bytes 来表示，UTF-16 对大部分字符都用 2 bytes，UTF-32 都使用 4 bytes；因此对于相同的给定文本， UTF-8 通常情况下的编码字节数更短
+(b): 这里说明 UTF-8 的编码规则：
+
+Unicode 范围              UTF-8 二进制格式
+
+U+0000   ~ U+007F         0xxxxxxx
+
+U+0080   ~ U+07FF         110xxxxx 10xxxxxx
+
+U+0800   ~ U+FFFF         1110xxxx 10xxxxxx 10xxxxxx
+
+U+10000  ~ U+10FFFF       11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+
+因此不能对单个字节直接调用 decode()，否则有可能会报错，例如以 10 开头的字节没有起始字节。
+报错示例：UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe4 in position 0: unexpected end of data
+(c): 逻辑同 b，可以用 11111111 11111111，第二个字节不以 10 开头
