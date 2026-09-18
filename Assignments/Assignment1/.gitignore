@@ -161,3 +161,9 @@ cython_debug/
 
 .ruff_cache/
 *.zip
+
+# my learning plan
+plan.md
+
+# datasets
+data/
