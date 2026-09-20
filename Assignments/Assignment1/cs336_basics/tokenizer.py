@@ -3,10 +3,11 @@ import os
 import regex as re
 from typing import BinaryIO
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 # 对原始文本进行初次分块，便于 CPU 并行处理
-NUM_CHUNKS = 20
+NUM_CHUNKS = 8
 
 # 初始化 vocabulary
 def _initialize_vocabulary(special_tokens: list[str]) -> list[bytes]:
@@ -87,25 +88,64 @@ def _pre_tokenization_helper(chunked_tokens: str) -> dict[tuple[bytes, ...], int
         counts[key] = counts.get(key, 0) + 1
     return counts
 
-# 整合所有分块的结果
-def _pre_tokenization(file_path: str | os.PathLike, 
-                      desired_num_chunks: int, 
-                      special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
-    with open(file_path, "r", encoding="utf-8", newline=None) as f:
-        split_special_token = b"<|endoftext|>"
-        # boundaries = _find_chunk_boundaries(f, desired_num_chunks, split_special_token)
+# 由每个 CPU 进程执行
+def _process_chunk_worker(
+    file_path: str | os.PathLike,
+    start: int,
+    end: int,
+    special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
+    # 每个进程自己打开文件
+    with open(file_path, "rb") as f:
+        f.seek(start)
+        chunk_bytes = f.read(end - start)
 
-        counts = []
+    chunk = chunk_bytes.decode(
+        "utf-8",
+        errors="ignore"
+    )
 
-        # for start, end in zip(boundaries[:-1], boundaries[1:]):
-        #    f.seek(start)
-        #    chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        text = f.read()
-        for chunked_tokens in _process_special_tokens(text, special_tokens):
-            counts.append(_pre_tokenization_helper(chunked_tokens))
+    # 换行标准化
+    chunk = chunk.replace("\r\n", "\n").replace("\r", "\n")
 
-        merged_counts = sum((Counter(c) for c in counts), Counter())
-        return dict(merged_counts)
+    chunk_counts = Counter()
+
+    # 去掉 special token
+    for chunked_tokens in _process_special_tokens(chunk,special_tokens):
+        chunk_counts.update( _pre_tokenization_helper(chunked_tokens))
+
+    return dict(chunk_counts)
+
+def _pre_tokenization(
+    file_path: str | os.PathLike,
+    desired_num_chunks: int,
+    special_tokens: list[str],
+) -> dict[tuple[bytes, ...], int]:
+    # 主进程只负责找 chunk boundaries
+    with open(file_path, "rb") as f:
+        split_special_token = b"<|endoftext|>" if len(special_tokens) == 0 else special_tokens[0].encode("utf-8")
+        boundaries = _find_chunk_boundaries(f, desired_num_chunks, split_special_token)
+
+    tasks = [
+        (
+            file_path,
+            start,
+            end,
+            special_tokens
+        ) for start, end in zip(boundaries[:-1], boundaries[1:])
+    ]
+
+    with ProcessPoolExecutor() as executor:
+        futures = [
+            executor.submit(_process_chunk_worker, *task)
+            for task in tasks
+        ]
+
+        merged_counts = Counter()
+        for future in futures:
+            merged_counts.update(future.result())
+
+    return dict(merged_counts)
+
     
 # using loops: a naive version
 def bpe_train(counts: dict[tuple[bytes, ...], int],
@@ -163,9 +203,4 @@ def run_bpe_train(input_path: str | os.PathLike,
     counts = _pre_tokenization(input_path, NUM_CHUNKS, special_tokens)
     return bpe_train(counts, vocab, vocab_size)
 
-def main():
-    run_bpe_train("test.txt", 100, ["<|endoftext|>"])
-
-if __name__ == "__main__":
-    main()
 
