@@ -121,16 +121,10 @@ def _pre_tokenization(
     desired_num_chunks: int,
     special_tokens: list[str],
 ) -> dict[tuple[bytes, ...], int]:
-
-    boundary_start = time.perf_counter()
     # 主进程只负责找 chunk boundaries
     with open(file_path, "rb") as f:
         split_special_token = b"<|endoftext|>" if len(special_tokens) == 0 else special_tokens[0].encode("utf-8")
         boundaries = _find_chunk_boundaries(f, desired_num_chunks, split_special_token)
-    boundary_time = time.perf_counter() - boundary_start
-
-    pre_tokenization_start = time.perf_counter()
-
     tasks = [
         (
             file_path,
@@ -149,19 +143,6 @@ def _pre_tokenization(
         merged_counts = Counter()
         for future in futures:
             merged_counts.update(future.result())
-
-    pre_tokenization_time = time.perf_counter() - pre_tokenization_start
-
-    print("\n--- Pre-tokenization profile ---")
-    print(
-        f"Chunk boundary search: "
-        f"{boundary_time:.3f} s"
-    )
-    print(
-        f"Parallel pre-tokenization: "
-        f"{pretok_time:.3f} s"
-    )
-
     return dict(merged_counts)
 
     
@@ -169,7 +150,6 @@ def _pre_tokenization(
 def bpe_train(counts: dict[tuple[bytes, ...], int],
               vocab: list[bytes],
               vocab_size: int) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    merge_start = time.perf_counter()
     merges = []
     while len(vocab) < vocab_size:
         frequency = dict()
@@ -212,12 +192,6 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
                     i += 1
             new_counts[tuple(new_key)] = new_counts.get(tuple(new_key), 0) + value
         counts = new_counts
-    merge_time = time.perf_counter() - merge_start
-
-    print(
-        f"BPE merge loop: "
-        f"{merge_time:.3f} s"
-    )
     vocab = dict(enumerate(vocab))
     return vocab, merges
 
