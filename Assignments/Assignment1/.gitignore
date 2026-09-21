@@ -167,3 +167,6 @@ plan.md
 
 # datasets
 data/
+
+# train outputs
+artifacts/
