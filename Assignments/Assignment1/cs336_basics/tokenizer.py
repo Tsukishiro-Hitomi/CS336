@@ -1,6 +1,7 @@
 # 训练 byte-level BPE tokenizer
 import os
 import regex as re
+import time
 from typing import BinaryIO
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
@@ -120,10 +121,15 @@ def _pre_tokenization(
     desired_num_chunks: int,
     special_tokens: list[str],
 ) -> dict[tuple[bytes, ...], int]:
+
+    boundary_start = time.perf_counter()
     # 主进程只负责找 chunk boundaries
     with open(file_path, "rb") as f:
         split_special_token = b"<|endoftext|>" if len(special_tokens) == 0 else special_tokens[0].encode("utf-8")
         boundaries = _find_chunk_boundaries(f, desired_num_chunks, split_special_token)
+    boundary_time = time.perf_counter() - boundary_start
+
+    pre_tokenization_start = time.perf_counter()
 
     tasks = [
         (
@@ -144,6 +150,18 @@ def _pre_tokenization(
         for future in futures:
             merged_counts.update(future.result())
 
+    pre_tokenization_time = time.perf_counter() - pre_tokenization_start
+
+    print("\n--- Pre-tokenization profile ---")
+    print(
+        f"Chunk boundary search: "
+        f"{boundary_time:.3f} s"
+    )
+    print(
+        f"Parallel pre-tokenization: "
+        f"{pretok_time:.3f} s"
+    )
+
     return dict(merged_counts)
 
     
@@ -151,7 +169,8 @@ def _pre_tokenization(
 def bpe_train(counts: dict[tuple[bytes, ...], int],
               vocab: list[bytes],
               vocab_size: int) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    merged = []
+    merge_start = time.perf_counter()
+    merges = []
     while len(vocab) < vocab_size:
         frequency = dict()
         for key, value in counts.items():
@@ -173,7 +192,7 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
 
         merged_key = b''.join(max_freq_key)
         vocab.append(merged_key)
-        merged.append(max_freq_key)
+        merges.append(max_freq_key)
 
         # update the counts
         new_counts = dict()
@@ -193,14 +212,68 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
                     i += 1
             new_counts[tuple(new_key)] = new_counts.get(tuple(new_key), 0) + value
         counts = new_counts
+    merge_time = time.perf_counter() - merge_start
+
+    print(
+        f"BPE merge loop: "
+        f"{merge_time:.3f} s"
+    )
     vocab = dict(enumerate(vocab))
-    return vocab, merged
+    return vocab, merges
 
 def run_bpe_train(input_path: str | os.PathLike,
                   vocab_size: int,
                   special_tokens: list[str]) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    total_start = time.perf_counter()
+    init_start = time.perf_counter()
+
     vocab = _initialize_vocabulary(special_tokens)
-    counts = _pre_tokenization(input_path, NUM_CHUNKS, special_tokens)
-    return bpe_train(counts, vocab, vocab_size)
+
+    init_time = time.perf_counter() - init_start
+
+    pretok_total_start = time.perf_counter()
+
+    counts = _pre_tokenization(
+        input_path,
+        NUM_CHUNKS,
+        special_tokens
+    )
+
+    pretok_total_time = time.perf_counter() - pretok_total_start
+
+    bpe_start = time.perf_counter()
+
+    vocab, merges = bpe_train(
+        counts,
+        vocab,
+        vocab_size
+    )
+
+    bpe_time = time.perf_counter() - bpe_start
+
+
+    total_time = time.perf_counter() - total_start
+
+
+    print("\n====== BPE TRAIN PROFILE ======")
+    print(
+        f"Vocabulary initialization: "
+        f"{init_time:.3f} s"
+    )
+    print(
+        f"Total pre-tokenization:    "
+        f"{pretok_total_time:.3f} s"
+    )
+    print(
+        f"BPE training:              "
+        f"{bpe_time:.3f} s"
+    )
+    print(
+        f"Total run_bpe_train:       "
+        f"{total_time:.3f} s"
+    )
+    print("===============================\n")
+
+    return vocab, merges
 
 
