@@ -8,7 +8,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 # 对原始文本进行初次分块，便于 CPU 并行处理
-NUM_CHUNKS = 8
+NUM_CHUNKS = 32
 
 # 初始化 vocabulary
 def _initialize_vocabulary(special_tokens: list[str]) -> list[bytes]:
@@ -147,7 +147,7 @@ def _pre_tokenization(
 
     
 # using loops: a naive version
-def bpe_train(counts: dict[tuple[bytes, ...], int],
+def bpe_train_naive(counts: dict[tuple[bytes, ...], int],
               vocab: list[bytes],
               vocab_size: int) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     merges = []
@@ -195,33 +195,108 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
     vocab = dict(enumerate(vocab))
     return vocab, merges
 
+# optimized instead of using naive loops, which is impossible to train on owt dataset.
+def bpe_train(counts: dict[tuple[bytes, ...], int],
+                        vocab: list[bytes], 
+                        vocab_size: int) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    merges = []
+    # initialize frequency and pair_to_words
+    frequency = dict()
+    pair_to_words = dict()
+    for key, value in counts.items():
+        for i in range(len(key) - 1):
+            pre = key[i]
+            cur = key[i + 1]
+            frequency[(pre, cur)] = frequency.get((pre, cur), 0) + value
+            pair_to_words.setdefault((pre, cur), set()).add(key)
+
+    # merge loop
+    while len(vocab) < vocab_size:
+        if not frequency:
+            break
+
+        max_freq_key = max(frequency, key=lambda k: (frequency[k], k))
+        merged_key = b''.join(max_freq_key)
+
+        vocab.append(merged_key)
+        merges.append(max_freq_key)
+        word_to_update_set = pair_to_words[max_freq_key].copy()
+        # update the records
+        for word_to_update in word_to_update_set:
+            word_counts = counts[word_to_update]
+            # delete the old word's pairs from frequency, and update pair_to_words
+            for i in range(len(word_to_update) - 1):
+                pre = word_to_update[i]
+                cur = word_to_update[i + 1]
+                frequency[(pre, cur)] -= word_counts
+                pair_to_words[(pre, cur)].discard(word_to_update)
+
+                if frequency[(pre, cur)] == 0:
+                    del frequency[(pre, cur)]
+                    del pair_to_words[(pre, cur)]
+
+            # construct the new word 
+            new_word = []
+            i = 0
+            while i < len(word_to_update):
+                if i == len(word_to_update) - 1:
+                    new_word.append(word_to_update[i])
+                    break
+                pre = word_to_update[i]
+                cur = word_to_update[i + 1]
+                if (pre, cur) == max_freq_key:
+                    new_word.append(merged_key)
+                    i += 2
+                else:
+                    new_word.append(pre)
+                    i += 1
+            new_word = tuple(new_word)
+
+            # add the new word's pairs
+            for i in range(len(new_word) - 1):
+                pre = new_word[i]
+                cur = new_word[i + 1]
+                frequency[(pre, cur)] = frequency.get((pre, cur), 0) + word_counts
+                pair_to_words.setdefault((pre, cur), set()).add(new_word)
+
+            # update the counts 
+            del counts[word_to_update]
+            counts[new_word] = counts.get(new_word, 0) + word_counts
+
+    vocab = dict(enumerate(vocab))
+    return vocab, merges
+
 def run_bpe_train(input_path: str | os.PathLike,
                   vocab_size: int,
                   special_tokens: list[str]) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     total_start = time.perf_counter()
     init_start = time.perf_counter()
 
+    print("Start initializing vocabulary:\n")
     vocab = _initialize_vocabulary(special_tokens)
-
+    print("Initializing vocabulary Ends.\n")
     init_time = time.perf_counter() - init_start
 
     pretok_total_start = time.perf_counter()
 
+    print("Start pre-tokenization:\n")
     counts = _pre_tokenization(
         input_path,
         NUM_CHUNKS,
         special_tokens
     )
-
+    print("Pre-tokenization Ends.\n")
     pretok_total_time = time.perf_counter() - pretok_total_start
 
     bpe_start = time.perf_counter()
 
+    print("Start bpe train:\n")
     vocab, merges = bpe_train(
         counts,
         vocab,
         vocab_size
     )
+    print("Bpe train ends.\n")
 
     bpe_time = time.perf_counter() - bpe_start
 
