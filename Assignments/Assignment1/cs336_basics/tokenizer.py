@@ -2,7 +2,8 @@
 import os
 import regex as re
 import time
-from typing import BinaryIO
+import pickle
+from typing import BinaryIO, Iterable
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
@@ -66,14 +67,23 @@ def _find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 # 对每个分块进行再分块，去掉所有 special_tokens
-def _process_special_tokens(chunk: str, special_tokens: list[str]) -> list[str]:
-    if len(special_tokens) == 0:
+def _process_special_tokens(chunk: str, special_tokens: list[str], special_tokens_remain: bool) -> list[str]:
+    if not special_tokens:
         return [chunk]
-    escaped_tokens = [re.escape(token) for token in special_tokens]
-    pattern_str = "|".join(escaped_tokens)
+    escaped_tokens = [re.escape(token) for token in sorted(special_tokens, key=len, reverse=True)]
+    pattern_str = "(" + "|".join(escaped_tokens) + ")" if special_tokens_remain else "|".join(escaped_tokens)
     pattern = re.compile(pattern_str)
     return pattern.split(chunk)
     
+# 用于 decode，将根据 special_tokens 分割好的 chunk 转化为 token list
+def _pre_decode_tokenization(chunked_tokens: str) -> list[tuple[bytes, ...]]:
+    pre_tokenized_words = re.finditer(PAT, chunked_tokens)
+    result = []
+    for match in pre_tokenized_words:
+        pre_tokenized_word = match.group()
+        encoded_bytes = pre_tokenized_word.encode("utf-8")
+        result.append(tuple([bytes([b]) for b in encoded_bytes]))
+    return result
 
 # 对每个处理好的分块做 pre_tokenization 并统计
 def _pre_tokenization_helper(chunked_tokens: str) -> dict[tuple[bytes, ...], int]:
@@ -111,7 +121,7 @@ def _process_chunk_worker(
     chunk_counts = Counter()
 
     # 去掉 special token
-    for chunked_tokens in _process_special_tokens(chunk,special_tokens):
+    for chunked_tokens in _process_special_tokens(chunk, special_tokens, False):
         chunk_counts.update( _pre_tokenization_helper(chunked_tokens))
 
     return dict(chunk_counts)
@@ -134,7 +144,7 @@ def _pre_tokenization(
         ) for start, end in zip(boundaries[:-1], boundaries[1:])
     ]
 
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=1) as executor:
         futures = [
             executor.submit(_process_chunk_worker, *task)
             for task in tasks
@@ -220,6 +230,10 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
 
         vocab.append(merged_key)
         merges.append(max_freq_key)
+
+        if len(vocab) % 1000 == 0:
+            print(f"current vocab length: {len(vocab)}")
+
         word_to_update_set = pair_to_words[max_freq_key].copy()
         # update the records
         for word_to_update in word_to_update_set:
@@ -326,3 +340,65 @@ def run_bpe_train(input_path: str | os.PathLike,
     return vocab, merges
 
 
+class tokenizer():
+    def __init__(self, vocab, merges, special_tokens=None):
+        self.vocab = vocab
+        self.merges = merges
+        self.special_tokens = special_tokens
+        self.token_to_id = {token: token_id for token_id, token in vocab.items()}
+        # 应当按照 merges 的顺序进行合并
+        self.merge_rank = {pair: rank for rank, pair in enumerate(merges)}
+
+    def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
+        with open(vocab_filepath, "rb") as f:
+            vocab = pickle.load(f)
+        with open(merges_filepath, "rb") as f:
+            merges = pickle.load(f)
+        return cls(vocab, merges, special_tokens)
+
+    def encode(self, text) -> list[int]:
+        # 根据 special_tokens 对原始文本进行分段，与训练不同，保留 special_tokens
+        split_chunk = _process_special_tokens(text, self.special_tokens, True)
+        ids = []
+        for chunk in split_chunk:
+            if self.special_tokens and chunk in self.special_tokens:
+                special_token_id = self.token_to_id[chunk.encode("utf-8")]
+                ids.append(special_token_id)
+            else:
+                for token in _pre_decode_tokenization(chunk):
+                    ids += self._encode_token(token)
+        return ids
+
+    def _encode_token(self, token) -> list[int]:
+        while True:
+            pairs = [(token[i], token[i + 1]) for i in range(len(token) - 1)]
+            valid_pairs = [pair for pair in pairs if pair in self.merge_rank]
+            if len(valid_pairs) == 0:
+                break
+            merge_pair = min(valid_pairs, key=lambda pair: self.merge_rank[pair])
+            new_token = []
+            i = 0
+            while i < len(token):
+                if i == len(token) - 1:
+                    new_token.append(token[i])
+                    break
+                pair = (token[i], token[i + 1])
+                if pair == merge_pair:
+                    new_token.append(token[i] + token[i + 1])
+                    i += 2
+                else:
+                    new_token.append(token[i])
+                    i += 1
+            token = tuple(new_token)
+        return [self.token_to_id[bytes(t)] for t in token]
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
+        for text in iterable:
+            for token_id in self.encode(text):
+                yield token_id
+
+    def decode(self, ids: list[int]) -> str:
+        decode_bytes = b""
+        for id in ids:
+            decode_bytes += self.vocab[id]
+        return decode_bytes.decode("utf-8", errors="replace")
