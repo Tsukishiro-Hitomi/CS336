@@ -20,3 +20,34 @@ U+10000  ~ U+10FFFF       11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
 因此不能对单个字节直接调用 decode()，否则有可能会报错，例如以 10 开头的字节没有起始字节。
 报错示例：UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe4 in position 0: unexpected end of data
 (c): 逻辑同 b，可以用 11111111 11111111，第二个字节不以 10 开头
+
+Problem (train_bpe_tinystories)
+(a) 
+    naive version
+    time:                   969.56s; 
+    memory:                 0.063 GB; 
+    longest token:          b' accomplishment'(15 bytes)
+
+    optimized version
+    time:                   129.97s
+    memory:                 0.120 GB
+    longest token:          b' accomplishment'(15 bytes)
+
+(b) 
+    naive version
+    vocab initialization:   0.000s
+    pre_tokenization:       191.393s
+    BPE training:           778.162s
+    total:                  969.555s
+
+    optimized vesion    
+    vocab initialization:   0.000s
+    pre_tokenization:       97.409s
+    BPE training:           32.524s
+    total:                  129.934s
+
+    BPE train 模块通过优化，速度加快了 20x
+
+Problem (train_bpe_expts_out)
+(a)
+(b)
