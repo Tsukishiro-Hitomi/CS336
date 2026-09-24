@@ -352,6 +352,7 @@ class tokenizer():
         # 应当按照 merges 的顺序进行合并
         self.merge_rank = {pair: rank for rank, pair in enumerate(merges)}
 
+    @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
         with open(vocab_filepath, "rb") as f:
             vocab = pickle.load(f)
