@@ -209,6 +209,7 @@ def bpe_train_naive(counts: dict[tuple[bytes, ...], int],
 def bpe_train(counts: dict[tuple[bytes, ...], int],
                         vocab: list[bytes], 
                         vocab_size: int) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    start_time = time.perf_counter()
     merges = []
     # initialize frequency and pair_to_words
     frequency = dict()
@@ -231,8 +232,10 @@ def bpe_train(counts: dict[tuple[bytes, ...], int],
         vocab.append(merged_key)
         merges.append(max_freq_key)
 
+        elapsed_time = time.perf_counter() - start_time
         if len(vocab) % 1000 == 0:
             print(f"current vocab length: {len(vocab)}")
+            print(f"current training time: {elapsed_time:.3f}s\n")
 
         word_to_update_set = pair_to_words[max_freq_key].copy()
         # update the records
