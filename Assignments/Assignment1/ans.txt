@@ -26,12 +26,12 @@ Problem (train_bpe_tinystories)
     naive version
     time:                   969.56s; 
     memory:                 0.063 GB; 
-    longest token:          b' accomplishment'(15 bytes)
+    the longest token:      b' accomplishment'(15 bytes)
 
     optimized version
     time:                   129.97s
     memory:                 0.120 GB
-    longest token:          b' accomplishment'(15 bytes)
+    the longest token:      b' accomplishment'(15 bytes)
 
 (b) 
     naive version
@@ -49,5 +49,6 @@ Problem (train_bpe_tinystories)
     BPE train 模块通过优化，速度加快了 20x
 
 Problem (train_bpe_expts_out)
-(a)
-(b)
+(a) the longest token: b'\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82' (64 bytes)
+    由于 owt 的 vocab_size 远大于 tinystories，因此会经过更多次 merge，相比于 tinystories （the longest token 是一个完整单词），会形成更长的 token
+(b) 由于训练文本的差异（tinystories 为童话故事，用词简单；owt 来源于更大、更复杂的网页语料），训练得到的 tokenizer 也存在差别
