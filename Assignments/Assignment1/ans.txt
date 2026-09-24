@@ -52,3 +52,37 @@ Problem (train_bpe_expts_out)
 (a) the longest token: b'\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82' (64 bytes)
     由于 owt 的 vocab_size 远大于 tinystories，因此会经过更多次 merge，相比于 tinystories （the longest token 是一个完整单词），会形成更长的 token
 (b) 由于训练文本的差异（tinystories 为童话故事，用词简单；owt 来源于更大、更复杂的网页语料），训练得到的 tokenizer 也存在差别
+
+Problem (tokenizer_experiment)
+(a) 
+    using owt_tokenizer to encode owt_samples: 
+
+    total_bytes=29501
+    total_tokens=6299
+    compression ratio=4.68 bytes/token
+    encode_time=0.06
+    encode_ratio=497944.99 bytes/second 
+
+    using tinystories_tokenizer to encode tinystories_samples: 
+
+    total_bytes=7412
+    total_tokens=1786
+    compression ratio=4.15 bytes/token
+    encode_time=0.01
+    encode_ratio=596568.04 bytes/second 
+(b)
+    using tinystories_tokenizer to encode owt_samples: 
+
+    total_bytes=29501
+    total_tokens=9250
+    compression ratio=3.19 bytes/token
+    encode_time=0.05
+    encode_ratio=549119.39 bytes/second
+
+    这个结果是合理的。因为 tinystories_tokenizer 与 owt_tokenizer 相比，会更倾向于保留原本 token，merge 的操作次数较少。因此表现为 compression ratio 较低
+(c)
+    综合以上实验结果，encode_ratio 大约为 500000 b/s (0.06 GB/S)
+    对 825 GB 的 Pile dataset 进行编码，大约需要 13750 s (约 4h)
+    
+(d)
+    uint16 可以表示 [0, 65535]，而 vocab_size 最大为 32000，恰好可以表示，节省磁盘空间
