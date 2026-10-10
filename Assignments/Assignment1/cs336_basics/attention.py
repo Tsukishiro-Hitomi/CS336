@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from einops import einsum
+from cs336_basics.layers import Linear
 import math
 
 class RoPE(nn.Module):
@@ -77,7 +78,59 @@ def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tens
     # mask: (..., querys, keys)
     d_k = Q.shape[-1]
     scores = einsum(Q, K, "... querys d_k, ... keys d_k -> ... querys keys") / math.sqrt(d_k)
-    scores = scores.masked_fill(~mask, float('-inf'))
+    if mask is not None:
+        scores = scores.masked_fill(~mask, float('-inf'))
     attn = softmax(scores, -1)
     return einsum(attn, V, "... querys keys, ... keys d_v -> ... querys d_v")
+
+class multihead_self_attention(nn.Module):
+    def __init__(self, 
+                 d_model: int, 
+                 num_heads: int,
+                 device: torch.device | None = None,
+                 dtype: torch.dtype | None = None
+                 ):
+
+        super().__init__()
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+
+        self.q = Linear(d_model, d_model, device, dtype)
+        self.k = Linear(d_model, d_model, device, dtype)
+        self.v = Linear(d_model, d_model, device, dtype)
+        self.o = Linear(d_model, d_model, device, dtype)
+
+    def forward(self, features: torch.Tensor, rope: RoPE, token_positions: torch.Tensor) -> torch.Tensor:
+        # features: (..., L, D)
+        sequence_length = features.shape[-2]
+        features_shape = features.shape
+
+        # (..., L, D) -> (..., L, H, D // H)
+        q = self.q.forward(features)
+        k = self.k.forward(features)
+        v = self.v.forward(features)
+        q = q.reshape(*q.shape[:-1], self.num_heads, self.d_model // self.num_heads)
+        k = k.reshape(*k.shape[:-1], self.num_heads, self.d_model // self.num_heads)
+        v = v.reshape(*v.shape[:-1], self.num_heads, self.d_model // self.num_heads)
+
+        # q, k, v: (..., H, L, D // H)
+        q = einsum(q, "... L H D_h -> ... H L D_h")
+        k = einsum(k, "... L H D_h -> ... H L D_h")
+        v = einsum(v, "... L H D_h -> ... H L D_h")
+
+        # apply rope to q and k, not v
+        if rope is not None:
+            q = rope.forward(q, token_positions)
+            k = rope.forward(k, token_positions)
+
+        # (..., H, L, D // H)
+        mask = torch.ones(sequence_length, sequence_length, device=features.device, dtype=torch.bool).tril()
+        value = scaled_dot_product_attention(q, k, v, mask)
+        # (..., L, D, D // H)
+        value = einsum(value, "... H L D_h -> ... L H D_h")
+        # (..., L, D)
+        value = value.reshape(features_shape)
+
+        return self.o.forward(value)
 
