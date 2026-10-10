@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from einops import einsum
+import math
 
 class RoPE(nn.Module):
     def __init__(self,
@@ -67,4 +69,15 @@ def softmax(x: torch.Tensor, i: int) -> torch.Tensor:
     exp_logits = torch.exp(logits)
     prob = exp_logits / torch.sum(exp_logits, dim=i, keepdim=True)
     return prob
+
+def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    # Q: (..., querys, d_k)
+    # K: (..., keys, d_k)
+    # V: (..., keys, d_v)
+    # mask: (..., querys, keys)
+    d_k = Q.shape[-1]
+    scores = einsum(Q, K, "... querys d_k, ... keys d_k -> ... querys keys") / math.sqrt(d_k)
+    scores = scores.masked_fill(~mask, float('-inf'))
+    attn = softmax(scores, -1)
+    return einsum(attn, V, "... querys keys, ... keys d_v -> ... querys d_v")
 
