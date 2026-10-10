@@ -61,4 +61,10 @@ class RoPE(nn.Module):
         # (..., L, d // 2, 2) -> (..., L, d)
         return rotated.reshape(x_shape)
         
+def softmax(x: torch.Tensor, i: int) -> torch.Tensor:
+    logits = x.clone()
+    logits -= torch.max(logits, dim=i, keepdim=True).values
+    exp_logits = torch.exp(logits)
+    prob = exp_logits / torch.sum(exp_logits, dim=i, keepdim=True)
+    return prob
 
