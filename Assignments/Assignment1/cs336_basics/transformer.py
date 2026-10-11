@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from cs336_basics.layers import Linear, RMSNorm
+from cs336_basics.layers import Linear, RMSNorm, Embedding
 from cs336_basics.attention import multihead_self_attention, RoPE
 
 def silu(x: torch.Tensor) -> torch.Tensor:
@@ -46,15 +46,47 @@ class TransformerBlock(nn.Module):
                  num_heads: int, 
                  d_ff: int,
                  rope: RoPE,
-                 token_positions: torch.Tensor):
+                ):
         super().__init__()
         self.swiglu = SwiGLU(d_model, d_ff)
         self.attention = multihead_self_attention(d_model, num_heads)
         self.rmsnorm1 = RMSNorm(d_model)
         self.rmsnorm2 = RMSNorm(d_model)
         self.rope = rope
-        self.token_positions = token_positions
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        y = x + self.attention.forward(self.rmsnorm1.forward(x), self.rope, self.token_positions)
+        y = x + self.attention.forward(self.rmsnorm1.forward(x), self.rope)
         return y + self.swiglu(self.rmsnorm2.forward(y))
+
+class TransformerLM(nn.Module):
+    def __init__(self, 
+                 d_model: int,
+                 num_heads: int,
+                 d_ff: int,
+                 rope: RoPE,
+                 vocab_size: int,
+                 context_length: int,
+                 num_layers: int):
+        super().__init__()
+
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.embedding = Embedding(vocab_size, self.d_model)
+        self.blocks = nn.ModuleList()
+        for _ in range(num_layers):
+            self.blocks.append(TransformerBlock(d_model, num_heads, d_ff, rope))
+        self.rmsnorm = RMSNorm(d_model)
+        self.final_linear = Linear(d_model, vocab_size)
+
+    def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
+        # (batch, sequence_length, d_model)
+        embeds = self.embedding.forward(in_indices)
+        for i in range(self.num_layers):
+            embeds = self.blocks[i].forward(embeds)
+        embeds = self.rmsnorm.forward(embeds)
+        # (batch, sequence_length, vocab_size)
+        scores = self.final_linear.forward(embeds)
+        return scores
+
+
+# uv run pytest -k test_transformer_lm

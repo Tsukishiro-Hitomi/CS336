@@ -101,7 +101,7 @@ class multihead_self_attention(nn.Module):
         self.v = Linear(d_model, d_model, device, dtype)
         self.o = Linear(d_model, d_model, device, dtype)
 
-    def forward(self, features: torch.Tensor, rope: RoPE, token_positions: torch.Tensor) -> torch.Tensor:
+    def forward(self, features: torch.Tensor, rope: RoPE, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         # features: (..., L, D)
         sequence_length = features.shape[-2]
         features_shape = features.shape
@@ -121,6 +121,11 @@ class multihead_self_attention(nn.Module):
 
         # apply rope to q and k, not v
         if rope is not None:
+            # (1, L) 自动广播为 (..., L)
+            if token_positions is None:
+                token_positions = torch.arange(sequence_length,
+                                    device=features.device,
+                                    dtype=torch.long).unsqueeze(0)
             q = rope.forward(q, token_positions)
             k = rope.forward(k, token_positions)
 

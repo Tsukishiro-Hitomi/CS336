@@ -304,13 +304,7 @@ def run_transformer_block(
     d_k = d_model // num_heads
     rope = RoPE(theta, d_k, max_seq_len)
 
-    batch, sequence_length, _ = in_features.shape
-    # (batch, sequence_length)
-    token_positions = torch.arange(sequence_length,
-                                   device=in_features.device,
-                                   dtype=torch.long).unsqueeze(0).expand(batch, -1)
-
-    model = TransformerBlock(d_model, num_heads, d_ff, rope, token_positions)
+    model = TransformerBlock(d_model, num_heads, d_ff, rope)
     model.load_state_dict({
                             "attention.q.W": weights["attn.q_proj.weight"], 
                             "attention.k.W": weights["attn.k_proj.weight"],
@@ -404,7 +398,30 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer import TransformerLM
+    from cs336_basics.attention import RoPE
+    d_k = d_model // num_heads
+    max_seq_len = d_model
+    rope = RoPE(rope_theta, d_k, max_seq_len)
+    model = TransformerLM(d_model, num_heads, d_ff, rope, vocab_size, context_length, num_layers)
+    keys = {}
+    for i in range(num_layers):
+        keys[f"blocks.{i}.attention.q.W"] = weights[f"layers.{i}.attn.q_proj.weight"]
+        keys[f"blocks.{i}.attention.k.W"] = weights[f"layers.{i}.attn.k_proj.weight"]
+        keys[f"blocks.{i}.attention.v.W"] = weights[f"layers.{i}.attn.v_proj.weight"]
+        keys[f"blocks.{i}.attention.o.W"] = weights[f"layers.{i}.attn.output_proj.weight"]
+        keys[f"blocks.{i}.swiglu.linear1.W"] = weights[f"layers.{i}.ffn.w1.weight"]
+        keys[f"blocks.{i}.swiglu.linear2.W"] = weights[f"layers.{i}.ffn.w2.weight"]
+        keys[f"blocks.{i}.swiglu.linear3.W"] = weights[f"layers.{i}.ffn.w3.weight"]
+        keys[f"blocks.{i}.rmsnorm1.g"] = weights[f"layers.{i}.ln1.weight"]
+        keys[f"blocks.{i}.rmsnorm2.g"] = weights[f"layers.{i}.ln2.weight"]
+
+    keys["embedding.embedding"] = weights["token_embeddings.weight"]
+    keys["rmsnorm.g"] = weights["ln_final.weight"]
+    keys["final_linear.W"] = weights["lm_head.weight"]
+
+    model.load_state_dict(keys)
+    return model.forward(in_indices)
 
 
 def run_rmsnorm(
