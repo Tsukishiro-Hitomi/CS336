@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from cs336_basics.layers import Linear
+from cs336_basics.layers import Linear, RMSNorm
+from cs336_basics.attention import multihead_self_attention, RoPE
 
 def silu(x: torch.Tensor) -> torch.Tensor:
     return x * torch.sigmoid(x)
@@ -38,3 +39,22 @@ class SwiGLU(nn.Module):
         out = self.linear2.forward(out)
 
         return out
+
+class TransformerBlock(nn.Module):
+    def __init__(self, 
+                 d_model: int,
+                 num_heads: int, 
+                 d_ff: int,
+                 rope: RoPE,
+                 token_positions: torch.Tensor):
+        super().__init__()
+        self.swiglu = SwiGLU(d_model, d_ff)
+        self.attention = multihead_self_attention(d_model, num_heads)
+        self.rmsnorm1 = RMSNorm(d_model)
+        self.rmsnorm2 = RMSNorm(d_model)
+        self.rope = rope
+        self.token_positions = token_positions
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = x + self.attention.forward(self.rmsnorm1.forward(x), self.rope, self.token_positions)
+        return y + self.swiglu(self.rmsnorm2.forward(y))
