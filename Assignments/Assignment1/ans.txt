@@ -86,3 +86,104 @@ Problem (tokenizer_experiment)
     
 (d)
     uint16 可以表示 [0, 65535]，而 vocab_size 最大为 32000，恰好可以表示，节省磁盘空间
+
+Problem(transformer_accounting)
+(a)
+    vocab_size: 50257
+    context_length: 1024
+    num_layers: 48
+    d_model: 1600
+    num_heads: 25
+    d_ff: 4288
+
+    trainable parameters:
+        embedding: (50257, 1600)
+
+        each transformer block (x48)
+            q: (1600, 1600)
+            k: (1600, 1600)
+            v: (1600, 1600)
+            o: (1600, 1600)
+            rmsnorm: 2 * (1600, )
+            swiglu: 3 * (1600, 4288)
+
+        rmsnorm: 2 * (1600, )
+        final_linear: (1600, 50257)
+
+        TOTAL: 1,640,454,400
+        Memory: each parameter is represented as single-precision floating poing (4B), thus total memory allocated is 
+                6,561,817,600B (6.11 GB)
+(b)
+    number of FLOPS:
+    we denote L as context_length and only consider matrix multiplication:
+
+    embedding: (L, 50257) @ (50257, 1600)   160,822,400 L
+    
+    each transformer block (x48)
+        q: (L, 1600) @ (1600, 1600)
+        k: (L, 1600) @ (1600, 1600)
+        v: (L, 1600) @ (1600, 1600)    15,360,000 L
+
+        attention (q @ k.T @ v): (L, 1600) @ (1600, L) @ (L, 1600)    6,400 L^2
+        o: (L, 1600) @ (1600, 1600)    5,120,200 L
+
+        SiLU:
+            (L, 1600) @ (1600, 4288)
+            (L, 1600) @ (1600, 4288)
+            (L, 4288) @ (4288, 1600)    41,164,800 L
+
+        total: 61,644,800 L + 6400 L^2
+
+    final_linear: (L, 1600) @ (1600, 50257)     160,822,400 L
+
+    TOTAL: 3,119,772,800 L + 307,200 L^2
+
+(c)
+    Attention requires the most FLOPS
+(d)
+    GPT-2 small (num_layers = 12,
+                d_model = 768,
+                num_heads = 12):
+
+    GPT-2-medium (num_layers = 24,
+                d_model = 1024,
+                num_heads = 16):
+
+    GPT-2-large (num_layers = 36,
+                d_model = 1280,
+                num_heads = 20):
+
+| Component | GPT-2 Small | GPT-2 Medium | GPT-2 Large |
+|---|---:|---:|---:|
+| Embedding | 79.047 (21.32%) | 105.397 (11.27%) | 131.746 (6.90%) |
+| QKV Projection | 43.487 (11.73%) | 154.619 (16.53%) | 362.388 (18.98%) |
+| Attention | 38.655 (10.43%) | 103.079 (11.02%) | 193.274 (10.12%) |
+| Output Projection | 14.496 (3.91%) | 51.540 (5.51%) | 120.796 (6.33%) |
+| SwiGLU | 115.964 (31.28%) | 415.538 (44.42%) | 969.388 (50.77%) |
+| Final Linear | 79.047 (21.32%) | 105.397 (11.27%) | 131.746 (6.90%) |
+| **TOTAL** | **370.696 (100%)** | **935.569 (100%)** | **1909.336 (100%)** |
+
+As model size increases, the proportion of FLOPs consumed by SwiGLU and linear projections increases, while the proportion consumed by embedding and final vocabulary projection decreases. This is because the computational cost of transformer blocks grows approximately quadratically with the hidden dimension and linearly with the number of layers, whereas embedding and vocabulary projection costs grow only linearly with the hidden dimension.
+
+(e)
+    GPT-2 XL
+    context_length: 1024 -> 16384 (16x)
+
+    FLOPS: 3,280,595,200 L + 307,200 L^2
+        L = 1024: 3,681,452,032,000
+        L = 16384: 136,212,643,840,000
+        37 times
+| Component | FLOPs (L=1024) | Proportion | FLOPs (L=16384) | Proportion |
+|---|---:|---:|---:|---:|
+| Embedding | 0.165 T | 4.47% | 2.635 T | 1.93% |
+| QKV Projection | 0.755 T | 20.51% | 12.080 T | 8.87% |
+| Attention | 0.322 T | 8.75% | 82.463 T | **60.54%** |
+| Output Projection | 0.252 T | 6.84% | 4.027 T | 2.96% |
+| SwiGLU | 2.023 T | **54.96%** | 32.373 T | 23.77% |
+| Final Linear | 0.165 T | 4.47% | 2.635 T | 1.93% |
+| **TOTAL** | **3.681 T** | **100%** | **136.213 T** | **100%** |
+
+Increasing the context length from 1,024 to 16,384 (16×) increases the total FLOPs for one forward pass from approximately 3.68 TFLOPs to 136.21 TFLOPs, representing a 37.00× increase.
+
+The proportion of FLOPs consumed by attention increases significantly from 8.75% to 60.54%, while the proportion consumed by SwiGLU decreases from 54.96% to 23.77%. This is because attention has quadratic complexity \(O(L^2)\) with respect to sequence length, whereas the other components scale linearly with \(L\). Consequently, attention becomes the dominant computational bottleneck for long-context inference.
+    
