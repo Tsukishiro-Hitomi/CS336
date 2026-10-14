@@ -125,7 +125,7 @@ Problem(transformer_accounting)
         v: (L, 1600) @ (1600, 1600)    15,360,000 L
 
         attention (q @ k.T @ v): (L, 1600) @ (1600, L) @ (L, 1600)    6,400 L^2
-        o: (L, 1600) @ (1600, 1600)    5,120,200 L
+        o: (L, 1600) @ (1600, 1600)    5,120,000 L
 
         SiLU:
             (L, 1600) @ (1600, 4288)
@@ -136,7 +136,7 @@ Problem(transformer_accounting)
 
     final_linear: (L, 1600) @ (1600, 50257)     160,822,400 L
 
-    TOTAL: 3,119,772,800 L + 307,200 L^2
+    TOTAL: 3,280,595,200 L + 307,200 L^2
 
 (c)
     Attention requires the most FLOPS
@@ -246,11 +246,37 @@ Problem(adamw_accounting)
 (a) peak memory:
 P = 2VD + L(4D^2 + 2D + 3DF) + 2VD
 M_params = 4P
-M_activations = 4B[L(8TD + 4TF + 2HT^2) + TD + 2TV]
+M_activations = 4B[L(8TD + 4TF + 2HT^2) + 2TD + 2TV]
 M_grad = 4P
 M_optimizer = 8P 
 
-TOTAL: 16P + 4B[L(8TD + 4TF + 2HT^2) + TD + 2TV]
+TOTAL: 16P + 4B[L(8TD + 4TF + 2HT^2) + 2TD + 2TV]
+
+how to compute activation?
+    embedding: (B, T, D) BTD
+    transformer block: 
+        2 * RMSNorm: (B, T, D) 2BTD
+        multihead_self_attention:
+            qkv projection: (B, T, D) 3BTD
+            attention scores: (B, H, T, T) BHT^2
+            softmax: BHT^2
+            weight sum: (B, T, D) BTD
+            output projection: (B, T, D) BTD
+
+            total: 5BTD + 2BHT^2
+        swiglu ffn:
+            XW1: (B, T, F) BTF
+            XW2: (B, T, F) BTF
+            SiLU: (B, T, F) BTF
+            element-wise multiplication: (B, T, F) BTF
+            W3 projection: (B, T, D) BTD
+
+            total: 4BTF + BTD
+        
+        total: 8BTD + 2BHT^2 + 4BTF
+    final rmsnorm: (B, T, D) BTD
+    final linear: (B, T, V) BTV
+    cross entropy: (B, T, V) BTV
 
 (b) GPT-2 XL
     vocab_size: 50,257
@@ -264,7 +290,7 @@ M_total = 16.37339136B + 26.2472704 GB <= 80 GB
 max_batchsize = 3
 
 (c) FLOPs:
-F_forward = BL(8TD^2 + 4T^2D + 6TDF) + 2BTDV
+F_forward = BT(4VD + 8ND^2 + 6NDF) + 4NBT^2D
 F_backward = 2 * F_forward
 AdamW step: O(P)
 
