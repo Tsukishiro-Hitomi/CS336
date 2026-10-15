@@ -1,4 +1,7 @@
 import math
+import torch
+from collections.abc import Iterable
+
 def learning_rate_schedule(t: int,
                            alpha_max: float,
                            alpha_min: float,
@@ -10,3 +13,22 @@ def learning_rate_schedule(t: int,
     if t >= t_w and t <= t_c:
         return alpha_min + 0.5 * (1 + math.cos((t - t_w) * math.pi / (t_c - t_w))) * (alpha_max - alpha_min)
     return alpha_min
+
+def gradient_clipping(parameters: Iterable[torch.nn.Parameter],
+                      M: float,
+                      eps = 1e-6):
+    sum = .0
+    for param in parameters:
+        if param.grad is None:
+            continue
+        grad = param.grad.data
+        sum += torch.sum(torch.square(grad))
+
+    grad_norm = math.sqrt(sum)
+    if grad_norm >= M:
+        for param in parameters:
+            if param.grad is None:
+                continue
+            param.grad.mul_(M / (grad_norm + eps))
+
+            
