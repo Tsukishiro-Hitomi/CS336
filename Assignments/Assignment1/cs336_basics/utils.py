@@ -1,6 +1,9 @@
 import math
 import torch
+import torch.nn as nn
+import os
 from collections.abc import Iterable
+import typing
 
 def learning_rate_schedule(t: int,
                            alpha_max: float,
@@ -32,3 +35,19 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter],
             param.grad.mul_(M / (grad_norm + eps))
 
             
+def save_checkpoint(model: nn.Module,
+                    optimizer: torch.optim.Optimizer,
+                    iteration: int, 
+                    out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]):
+    model_weights = model.state_dict()
+    optimizer_weights = optimizer.state_dict()
+    torch.save((iteration, model_weights, optimizer_weights), out)
+
+def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
+                    model: nn.Module,
+                    optimizer: torch.optim.Optimizer) -> int:
+    i, model_weights, optimizer_weights = torch.load(src)
+    model.load_state_dict(model_weights)
+    optimizer.load_state_dict(optimizer_weights)
+    return i
+
