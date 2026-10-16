@@ -19,5 +19,3 @@ def get_batch(x: npt.NDArray,
         next[i] = torch.Tensor(x[start + 1: start + context_length + 1], device=device)
 
     return (pre, next)
-
-# uv run pytest -k test_get_batch
