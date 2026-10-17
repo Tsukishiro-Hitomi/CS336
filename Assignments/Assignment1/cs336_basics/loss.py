@@ -1,17 +1,19 @@
 import torch
+from einops import rearrange
 
 def cross_entropy(inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    # inputs: (batch, vocab_size)
-    # targets: (batch, )
-    batch, vocab_size = inputs.shape
-    print(f"batch = {batch}, vocab_size = {vocab_size}")
-
+    # inputs: (batch, context_length, vocab_size)
+    # targets: (batch, context_length)
     logits = inputs.clone()
+    logits = rearrange(logits, "... v -> (...) v")
+    targets = rearrange(targets, "... -> (...)")
+    batch = logits.shape[0]
 
     # numeric stablity
     logits -= torch.max(logits, dim=-1, keepdim=True).values
 
     loss = .0
+
     for i in range(batch):
         loss -= logits[i, targets[i]]
 
