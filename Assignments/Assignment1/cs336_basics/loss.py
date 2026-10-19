@@ -20,5 +20,5 @@ def cross_entropy(inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     logits_sum = torch.sum(torch.exp(logits), dim=-1)
     log_logits_sum = torch.log(logits_sum)
 
-    loss += torch.sum(log_logits_sum)
+    loss += torch.sum(log_logits_sum).item()
     return loss / batch
