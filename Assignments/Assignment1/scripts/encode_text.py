@@ -68,27 +68,14 @@ def encode_experiment(samples, tokenizer_):
 
 def encode_dataset(input_path, output_path, tokenizer_):
     with open(input_path, "r", encoding="utf-8") as fin, open(output_path, "wb") as fout:
-
-        current_doc = []
-
+        result = []
         for line in fin:
-            if line.strip() == "<|endoftext|>":
-                text = "".join(current_doc)
-                current_doc = []
-
-                if not text:
-                    continue
-
-                token_ids = tokenizer.encode(text)
-                token_ids.append(
-                    tokenizer.encode("<|endoftext|>")[0]
-                )
-
-                np.asarray(token_ids, dtype=np.uint16).tofile(fout)
-
-        if current_doc:
-            token_ids = tokenizer.encode("".join(current_doc))
-            np.asarray(token_ids, dtype=np.uint16).tofile(fout)
+            token_ids = tokenizer_.encode(line)
+            result.extend(token_ids)
+            if len(result) >= 10000:
+                np.asarray(result, dtype=np.uint16).tofile(fout)
+                result = []
+        np.asarray(result, dtype=np.uint16).tofile(fout)
 
 def main():
     owt_tokenizer = get_tokenizer(owt_vocab_path, owt_merges_path, [special_token])
@@ -106,17 +93,17 @@ def main():
     print("using tinystories_tokenizer to encode owt_samples: \n")
     encode_experiment(owt_samples, tinystories_tokenizer)
 
+    encode_dataset(tinystories_train_file_path, tinystories_train_out_path, tinystories_tokenizer)
+    print(f"{tinystories_train_file_path} encoding result saved to {tinystories_train_out_path}")
+
+    encode_dataset(tinystories_valid_file_path, tinystories_valid_out_path, tinystories_tokenizer)
+    print(f"{tinystories_valid_file_path} encoding result saved to {tinystories_valid_out_path} ")
+
     encode_dataset(owt_train_file_path, owt_train_out_path, owt_tokenizer)
     print(f"{owt_train_file_path} encoding result saved to {owt_train_out_path}")
 
     encode_dataset(owt_valid_file_path, owt_valid_out_path, owt_tokenizer)
     print(f"{owt_valid_file_path} encoding result saved to {owt_valid_out_path} ")
-
-    encode_dataset(tinystories_train_file_path, tinystories_train_out_path, tinystories_tokenizer)
-    print(f"{tinystories_train_file_path} encoding result saved to {tinystories_train_out_path}")
-
-    encode_dataset(tinystories_valid_file_path, tinystories_valid_out_path, tinystories_tokenizer)
-    print(f"{tinystories_valid_file_path} encoding result saved to {tinystories_valid_out_path}")
 
 if __name__ == "__main__":
     main()
