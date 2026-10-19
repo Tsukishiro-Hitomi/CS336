@@ -27,8 +27,10 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter],
         grad = param.grad.data
         sum += torch.sum(torch.square(grad))
 
+    sum = sum.item()
+
     grad_norm = math.sqrt(sum)
-    if grad_norm >= M:
+    if grad_norm > M:
         for param in parameters:
             if param.grad is None:
                 continue
