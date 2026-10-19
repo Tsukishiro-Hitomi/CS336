@@ -88,7 +88,8 @@ class multihead_self_attention(nn.Module):
                  d_model: int, 
                  num_heads: int,
                  device: torch.device | None = None,
-                 dtype: torch.dtype | None = None
+                 dtype: torch.dtype | None = None,
+                 use_causal_mask = True
                  ):
 
         super().__init__()
@@ -100,6 +101,8 @@ class multihead_self_attention(nn.Module):
         self.k = Linear(d_model, d_model, device, dtype)
         self.v = Linear(d_model, d_model, device, dtype)
         self.o = Linear(d_model, d_model, device, dtype)
+
+        self.use_causal_mask = use_causal_mask
 
     def forward(self, features: torch.Tensor, rope: RoPE, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         # features: (..., L, D)
@@ -130,7 +133,7 @@ class multihead_self_attention(nn.Module):
             k = rope.forward(k, token_positions)
 
         # (..., H, L, D // H)
-        mask = torch.ones(sequence_length, sequence_length, device=features.device, dtype=torch.bool).tril()
+        mask = torch.ones(sequence_length, sequence_length, device=features.device, dtype=torch.bool).tril() if self.use_causal_mask else None
         value = scaled_dot_product_attention(q, k, v, mask)
         # (..., L, D, D // H)
         value = einsum(value, "... H L D_h -> ... L H D_h")
