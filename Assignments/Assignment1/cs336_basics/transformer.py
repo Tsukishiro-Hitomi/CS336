@@ -65,14 +65,15 @@ class TransformerLM(nn.Module):
                  d_ff: int,
                  rope: RoPE,
                  vocab_size: int,
-                 context_length: int,
-                 num_layers: int):
+                 num_layers: int,
+                 device: torch.device | None = None):
         super().__init__()
 
         self.d_model = d_model
         self.num_layers = num_layers
         self.embedding = Embedding(vocab_size, self.d_model)
         self.blocks = nn.ModuleList()
+        self.device = device
         for _ in range(num_layers):
             self.blocks.append(TransformerBlock(d_model, num_heads, d_ff, rope))
         self.rmsnorm = RMSNorm(d_model)
@@ -87,6 +88,3 @@ class TransformerLM(nn.Module):
         # (batch, sequence_length, vocab_size)
         scores = self.final_linear.forward(embeds)
         return scores
-
-
-# uv run pytest -k test_transformer_lm
