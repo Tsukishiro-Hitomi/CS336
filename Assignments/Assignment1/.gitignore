@@ -170,3 +170,6 @@ data/
 
 # train outputs
 artifacts/
+
+# experiment outputs
+runs/
