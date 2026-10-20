@@ -1,0 +1,302 @@
+Problem (unicode1)
+(a): '\x00'
+(b): __repr__(): 对象的特殊方法，如何用字符串表示一个对象（与 __str__() 相比，面向开发者，常用于调试），print() 负责显示字符串
+(c): chr(0) 生成不可见字符 NUL，直接在终端输入 chr(0) 会调用其 repr() 方法使其可见，而调用 print() 方法不会出现任何输出（因为是不可见字符）
+
+Problem (unicode2)
+(a): UTF-8 完全兼容 Unicode，根据不同的 Unicode code point 灵活选择 1/2/3/4 bytes 来表示，UTF-16 对大部分字符都用 2 bytes，UTF-32 都使用 4 bytes；因此对于相同的给定文本， UTF-8 通常情况下的编码字节数更短
+(b): 这里说明 UTF-8 的编码规则：
+
+Unicode 范围              UTF-8 二进制格式
+
+U+0000   ~ U+007F         0xxxxxxx
+
+U+0080   ~ U+07FF         110xxxxx 10xxxxxx
+
+U+0800   ~ U+FFFF         1110xxxx 10xxxxxx 10xxxxxx
+
+U+10000  ~ U+10FFFF       11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+
+因此不能对单个字节直接调用 decode()，否则有可能会报错，例如以 10 开头的字节没有起始字节。
+报错示例：UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe4 in position 0: unexpected end of data
+(c): 逻辑同 b，可以用 11111111 11111111，第二个字节不以 10 开头
+
+Problem (train_bpe_tinystories)
+(a) 
+    naive version
+    time:                   969.56s; 
+    memory:                 0.063 GB; 
+    the longest token:      b' accomplishment'(15 bytes)
+
+    optimized version
+    time:                   129.97s
+    memory:                 0.120 GB
+    the longest token:      b' accomplishment'(15 bytes)
+
+(b) 
+    naive version
+    vocab initialization:   0.000s
+    pre_tokenization:       191.393s
+    BPE training:           778.162s
+    total:                  969.555s
+
+    optimized vesion    
+    vocab initialization:   0.000s
+    pre_tokenization:       97.409s
+    BPE training:           32.524s
+    total:                  129.934s
+
+    BPE train 模块通过优化，速度加快了 20x
+
+Problem (train_bpe_expts_out)
+(a) the longest token: b'\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82\xc3\x83\xc3\x82' (64 bytes)
+    由于 owt 的 vocab_size 远大于 tinystories，因此会经过更多次 merge，相比于 tinystories （the longest token 是一个完整单词），会形成更长的 token
+(b) 由于训练文本的差异（tinystories 为童话故事，用词简单；owt 来源于更大、更复杂的网页语料），训练得到的 tokenizer 也存在差别
+
+Problem (tokenizer_experiment)
+(a) 
+    using owt_tokenizer to encode owt_samples: 
+
+    total_bytes=29501
+    total_tokens=6299
+    compression ratio=4.68 bytes/token
+    encode_time=0.06
+    encode_ratio=497944.99 bytes/second 
+
+    using tinystories_tokenizer to encode tinystories_samples: 
+
+    total_bytes=7412
+    total_tokens=1786
+    compression ratio=4.15 bytes/token
+    encode_time=0.01
+    encode_ratio=596568.04 bytes/second 
+(b)
+    using tinystories_tokenizer to encode owt_samples: 
+
+    total_bytes=29501
+    total_tokens=9250
+    compression ratio=3.19 bytes/token
+    encode_time=0.05
+    encode_ratio=549119.39 bytes/second
+
+    这个结果是合理的。因为 tinystories_tokenizer 与 owt_tokenizer 相比，会更倾向于保留原本 token，merge 的操作次数较少。因此表现为 compression ratio 较低
+(c)
+    综合以上实验结果，encode_ratio 大约为 500000 b/s (0.06 GB/S)
+    对 825 GB 的 Pile dataset 进行编码，大约需要 13750 s (约 4h)
+    
+(d)
+    uint16 可以表示 [0, 65535]，而 vocab_size 最大为 32000，恰好可以表示，节省磁盘空间
+
+Problem(transformer_accounting)
+(a)
+    vocab_size: 50257
+    context_length: 1024
+    num_layers: 48
+    d_model: 1600
+    num_heads: 25
+    d_ff: 4288
+
+    trainable parameters:
+        embedding: (50257, 1600)
+
+        each transformer block (x48)
+            q: (1600, 1600)
+            k: (1600, 1600)
+            v: (1600, 1600)
+            o: (1600, 1600)
+            rmsnorm: 2 * (1600, )
+            swiglu: 3 * (1600, 4288)
+
+        rmsnorm: 2 * (1600, )
+        final_linear: (1600, 50257)
+
+        TOTAL: 1,640,454,400
+        Memory: each parameter is represented as single-precision floating poing (4B), thus total memory allocated is 
+                6,561,817,600B (6.11 GB)
+(b)
+    number of FLOPS:
+    we denote L as context_length and only consider matrix multiplication:
+
+    embedding: (L, 50257) @ (50257, 1600)   160,822,400 L
+    
+    each transformer block (x48)
+        q: (L, 1600) @ (1600, 1600)
+        k: (L, 1600) @ (1600, 1600)
+        v: (L, 1600) @ (1600, 1600)    15,360,000 L
+
+        attention (q @ k.T @ v): (L, 1600) @ (1600, L) @ (L, 1600)    6,400 L^2
+        o: (L, 1600) @ (1600, 1600)    5,120,000 L
+
+        SiLU:
+            (L, 1600) @ (1600, 4288)
+            (L, 1600) @ (1600, 4288)
+            (L, 4288) @ (4288, 1600)    41,164,800 L
+
+        total: 61,644,800 L + 6400 L^2
+
+    final_linear: (L, 1600) @ (1600, 50257)     160,822,400 L
+
+    TOTAL: 3,280,595,200 L + 307,200 L^2
+
+(c)
+    Attention requires the most FLOPS
+(d)
+    GPT-2 small (num_layers = 12,
+                d_model = 768,
+                num_heads = 12):
+
+    GPT-2-medium (num_layers = 24,
+                d_model = 1024,
+                num_heads = 16):
+
+    GPT-2-large (num_layers = 36,
+                d_model = 1280,
+                num_heads = 20):
+
+| Component | GPT-2 Small | GPT-2 Medium | GPT-2 Large |
+|---|---:|---:|---:|
+| Embedding | 79.047 (21.32%) | 105.397 (11.27%) | 131.746 (6.90%) |
+| QKV Projection | 43.487 (11.73%) | 154.619 (16.53%) | 362.388 (18.98%) |
+| Attention | 38.655 (10.43%) | 103.079 (11.02%) | 193.274 (10.12%) |
+| Output Projection | 14.496 (3.91%) | 51.540 (5.51%) | 120.796 (6.33%) |
+| SwiGLU | 115.964 (31.28%) | 415.538 (44.42%) | 969.388 (50.77%) |
+| Final Linear | 79.047 (21.32%) | 105.397 (11.27%) | 131.746 (6.90%) |
+| **TOTAL** | **370.696 (100%)** | **935.569 (100%)** | **1909.336 (100%)** |
+
+As model size increases, the proportion of FLOPs consumed by SwiGLU and linear projections increases, while the proportion consumed by embedding and final vocabulary projection decreases. This is because the computational cost of transformer blocks grows approximately quadratically with the hidden dimension and linearly with the number of layers, whereas embedding and vocabulary projection costs grow only linearly with the hidden dimension.
+
+(e)
+    GPT-2 XL
+    context_length: 1024 -> 16384 (16x)
+
+    FLOPS: 3,280,595,200 L + 307,200 L^2
+        L = 1024: 3,681,452,032,000
+        L = 16384: 136,212,643,840,000
+        37 times
+| Component | FLOPs (L=1024) | Proportion | FLOPs (L=16384) | Proportion |
+|---|---:|---:|---:|---:|
+| Embedding | 0.165 T | 4.47% | 2.635 T | 1.93% |
+| QKV Projection | 0.755 T | 20.51% | 12.080 T | 8.87% |
+| Attention | 0.322 T | 8.75% | 82.463 T | **60.54%** |
+| Output Projection | 0.252 T | 6.84% | 4.027 T | 2.96% |
+| SwiGLU | 2.023 T | **54.96%** | 32.373 T | 23.77% |
+| Final Linear | 0.165 T | 4.47% | 2.635 T | 1.93% |
+| **TOTAL** | **3.681 T** | **100%** | **136.213 T** | **100%** |
+
+Increasing the context length from 1,024 to 16,384 (16×) increases the total FLOPs for one forward pass from approximately 3.68 TFLOPs to 136.21 TFLOPs, representing a 37.00× increase.
+
+The proportion of FLOPs consumed by attention increases significantly from 8.75% to 60.54%, while the proportion consumed by SwiGLU decreases from 54.96% to 23.77%. This is because attention has quadratic complexity \(O(L^2)\) with respect to sequence length, whereas the other components scale linearly with \(L\). Consequently, attention becomes the dominant computational bottleneck for long-context inference.
+    
+Problem(learning_rate_tuning)
+Experiment Result:
+lr = 1
+24.993797302246094
+24.004039764404297
+23.329906463623047
+22.794235229492188
+22.34062957763672
+21.942777633666992
+21.585914611816406
+21.260801315307617
+20.96118927001953
+20.682640075683594
+
+lr = 10.0
+24.442794799804688
+15.643389701843262
+11.531641006469727
+9.022276878356934
+7.308043956756592
+6.059205532073975
+5.11013650894165
+4.366757392883301
+3.771038293838501
+3.2849931716918945
+
+lr = 100.0
+27.545137405395508
+27.54513168334961
+4.725996494293213
+0.1131037250161171
+1.7479128377567406e-16
+1.9481571671211083e-18
+6.5601309774971e-20
+3.907915445398045e-21
+3.3524621999428467e-22
+3.7249579648760116e-23
+
+lr = 1000.0
+25.218935012817383
+9104.0361328125
+1572410.25
+174913856.0
+14168020992.0
+894164402176.0
+45903477997568.0
+1974963804307456.0
+7.279296115847987e+16
+2.337463039483183e+18
+
+学习率为 1 时：loss 缓慢下降；
+学习率为 10 时：loss 较快速收敛；
+学习率为 100 时：loss 快速收敛后又增加，出现振荡；
+学习率为 1000 时：loss 剧烈振荡；
+
+Problem(adamw_accounting)
+(a) peak memory:
+P = 2VD + L(4D^2 + 2D + 3DF) + 2VD
+M_params = 4P
+M_activations = 4B[L(8TD + 4TF + 2HT^2) + 2TD + 2TV]
+M_grad = 4P
+M_optimizer = 8P 
+
+TOTAL: 16P + 4B[L(8TD + 4TF + 2HT^2) + 2TD + 2TV]
+
+how to compute activation?
+    embedding: (B, T, D) BTD
+    transformer block: 
+        2 * RMSNorm: (B, T, D) 2BTD
+        multihead_self_attention:
+            qkv projection: (B, T, D) 3BTD
+            attention scores: (B, H, T, T) BHT^2
+            softmax: BHT^2
+            weight sum: (B, T, D) BTD
+            output projection: (B, T, D) BTD
+
+            total: 5BTD + 2BHT^2
+        swiglu ffn:
+            XW1: (B, T, F) BTF
+            XW2: (B, T, F) BTF
+            SiLU: (B, T, F) BTF
+            element-wise multiplication: (B, T, F) BTF
+            W3 projection: (B, T, D) BTD
+
+            total: 4BTF + BTD
+        
+        total: 8BTD + 2BHT^2 + 4BTF
+    final rmsnorm: (B, T, D) BTD
+    final linear: (B, T, V) BTV
+    cross entropy: (B, T, V) BTV
+
+(b) GPT-2 XL
+    vocab_size: 50,257
+    context_length: 1,024
+    num_layers: 48
+    d_model: 1,600
+    num_heads: 25
+    d_ff: 4288
+
+M_total = 16.37339136B + 26.2472704 GB <= 80 GB
+max_batchsize = 3
+
+(c) FLOPs:
+F_forward = BT(4VD + 8ND^2 + 6NDF) + 4NBT^2D
+F_backward = 2 * F_forward
+AdamW step: O(P)
+
+(d)
+F_GPU = 495 * 10^12 * 0.5 = 247.5 * 10^12 FLOPS/s
+F_step = 3 F_forward = 1.08035 * 10^16 FLOPS/s 
+t = 40000 * F_step / F_GPU 
+  = 1.74602 * 10^7 s 
+  = 4850.06 h
