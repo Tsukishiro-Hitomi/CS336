@@ -403,7 +403,7 @@ def run_transformer_lm(
     d_k = d_model // num_heads
     max_seq_len = d_model
     rope = RoPE(rope_theta, d_k, max_seq_len)
-    model = TransformerLM(d_model, num_heads, d_ff, rope, vocab_size, context_length, num_layers)
+    model = TransformerLM(d_model, num_heads, d_ff, rope, vocab_size, num_layers)
     keys = {}
     for i in range(num_layers):
         keys[f"blocks.{i}.attention.q.W"] = weights[f"layers.{i}.attn.q_proj.weight"]
